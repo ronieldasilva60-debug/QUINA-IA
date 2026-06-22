@@ -1,0 +1,538 @@
+/***************************************
+ * QUINA IA PRO v2 - EVOLUTIVA
+ ***************************************/
+
+const CONFIG = {
+
+  urlQuina: "https://servicebus2.caixa.gov.br/portaldeloterias/api/quina",
+
+  concursosAnalise: 200,
+
+  baseSizes: {
+    F15: 15,
+    F18: 18,
+    F20: 20,
+    F22: 22
+  },
+
+  closures: {
+    F15: 30,
+    F18: 60,
+    F20: 100,
+    F22: 150
+  },
+
+  weights: {
+    frequency: 0.35,
+    delay: 0.25,
+    trend: 0.20,
+    repeat: 0.10,
+    balance: 0.10
+  },
+
+  evolution: {
+    learningRate: 0.12,
+    decay: 0.05,
+    boostHit: 0.20,
+    penaltyMiss: 0.10,
+    maxWeight: 3.0,
+    minWeight: 0.2
+  }
+
+};
+
+
+/***************************************
+ * TRIGGER PRINCIPAL
+ ***************************************/
+function atualizarQuinaIA() {
+
+  initMemoriaIA();
+
+  importarUltimoConcurso();
+
+  const concursos = carregarConcursos();
+
+  const stats = calcularEstatisticas(concursos);
+
+  const ranking = gerarRanking(stats);
+
+  const base = gerarBaseN(ranking);
+
+  const jogos = gerarFechamento(base);
+
+  salvarResultado(base, jogos, ranking);
+
+  const ultimo = concursos[concursos.length - 1];
+  const resultado = ultimo.slice(2,7).map(Number);
+
+  aprenderIA(ultimo[0], base, resultado);
+
+}
+
+function initMemoriaIA() {
+
+  const sheet = getSheet("MEMORIA_NUMEROS");
+
+  if (sheet.getLastRow() > 1) return;
+
+  sheet.appendRow(["Numero","PesoIA","Sucesso","Falha","UltimoUso"]);
+
+  for (let i = 1; i <= 80; i++) {
+
+    sheet.appendRow([i, 1.0, 0, 0, new Date()]);
+
+  }
+
+}
+
+function getMemoria() {
+
+  const sheet = getSheet("MEMORIA_NUMEROS");
+
+  const data = sheet.getDataRange().getValues();
+
+  data.shift();
+
+  const map = {};
+
+  data.forEach(r => {
+
+    map[r[0]] = {
+      peso: r[1],
+      sucesso: r[2],
+      falha: r[3],
+      ultimo: r[4]
+    };
+
+  });
+
+  return map;
+
+}
+
+function gerarBaseN(ranking) {
+
+  const elite = ranking.slice(0,15);
+  const forte = ranking.slice(15,30);
+  const media = ranking.slice(30,50);
+  const fria = ranking.slice(50,80);
+
+  const base = [];
+
+  base.push(...pick(elite, 2));
+  base.push(...pick(forte, 6));
+  base.push(...pick(media, 8));
+  base.push(...pick(fria, 4));
+
+  return base.map(n => n.number);
+
+}
+
+function aprenderIA(concurso, base, resultado) {
+
+  const sheet = getSheet("MEMORIA_NUMEROS");
+
+  const memoria = getMemoria();
+
+  const resultadoSet = new Set(resultado);
+
+  for (let n of base) {
+
+    let m = memoria[n];
+
+    if (!m) continue;
+
+    if (resultadoSet.has(n)) {
+
+      m.peso += CONFIG.evolution.boostHit;
+      m.sucesso++;
+
+    } else {
+
+      m.peso -= CONFIG.evolution.penaltyMiss;
+      m.falha++;
+
+    }
+
+    m.peso = Math.max(
+      CONFIG.evolution.minWeight,
+      Math.min(CONFIG.evolution.maxWeight, m.peso)
+    );
+
+  }
+
+  salvarMemoria(sheet, memoria);
+
+}
+
+function salvarMemoria(sheet, memoria) {
+
+  const values = [];
+
+  for (let i = 1; i <= 80; i++) {
+
+    const m = memoria[i];
+
+    values.push([
+      i,
+      m.peso,
+      m.sucesso,
+      m.falha,
+      new Date()
+    ]);
+
+  }
+
+  sheet.getRange(2,1,values.length,5).setValues(values);
+
+}
+
+/***************************************
+ * IMPORTAÇÃO CAIXA
+ ***************************************/
+function importarUltimosConcursos() {
+
+  const sheet = getSheet("CONCURSOS");
+
+  const urlBase = "https://servicebus2.caixa.gov.br/portaldeloterias/api/quina";
+
+  // pega último concurso
+  const ultimoResp = UrlFetchApp.fetch(urlBase);
+  const ultimoData = JSON.parse(ultimoResp.getContentText());
+
+  const ultimoNumero = Number(ultimoData.numero);
+
+  const existentes = sheet.getDataRange().getValues()
+    .slice(1)
+    .map(r => Number(r[0]));
+
+  let adicionados = 0;
+
+  for (let i = 0; i < CONFIG.concursosAnalise; i++) {
+
+    const concurso = ultimoNumero - i;
+
+    if (existentes.includes(concurso)) continue;
+
+    try {
+
+      const resp = UrlFetchApp.fetch(`${urlBase}/${concurso}`);
+      const data = JSON.parse(resp.getContentText());
+
+      const dezenas = data.listaDezenas || data.dezenas;
+
+      if (!dezenas) continue;
+
+      sheet.appendRow([
+        data.numero,
+        data.dataApuracao,
+        Number(dezenas[0]),
+        Number(dezenas[1]),
+        Number(dezenas[2]),
+        Number(dezenas[3]),
+        Number(dezenas[4])
+      ]);
+
+      adicionados++;
+
+    } catch (e) {
+      // ignora concursos inexistentes ou erro da API
+      continue;
+    }
+
+  }
+
+  return `Importados: ${adicionados}`;
+}
+
+
+/***************************************
+ * CARREGAR CONCURSOS
+ ***************************************/
+function carregarConcursos() {
+
+  const sheet = getSheet("CONCURSOS");
+
+  const values = sheet.getDataRange().getValues();
+
+  values.shift();
+
+  return values.slice(-CONFIG.concursosAnalise);
+
+}
+
+
+/***************************************
+ * ESTATÍSTICAS
+ ***************************************/
+function calcularEstatisticas(concursos) {
+
+  const freq = {};
+  const atraso = {};
+  const trend = {};
+
+  for (let i = 1; i <= 80; i++) {
+    freq[i] = 0;
+    atraso[i] = 0;
+    trend[i] = 0;
+  }
+
+  concursos.forEach((c, idx) => {
+
+    const dezenas = c.slice(2, 7).map(Number);
+
+    dezenas.forEach(d => freq[d]++);
+
+    dezenas.forEach(d => {
+      atraso[d] = idx;
+    });
+
+  });
+
+  return { freq, atraso, trend };
+
+}
+
+
+/***************************************
+ * RANKING
+ ***************************************/
+function gerarRanking(stats) {
+
+  const memoria = getMemoria();
+
+  const ranking = [];
+
+  for (let i = 1; i <= 80; i++) {
+
+    const f = stats.freq[i] || 0;
+    const a = stats.atraso[i] || 0;
+
+    const m = memoria[i];
+
+    const pesoIA = m ? m.peso : 1;
+
+    const score =
+      (f * 0.35) +
+      (a * 0.25) +
+      (pesoIA * 20);
+
+    ranking.push({
+      number: i,
+      score: score
+    });
+
+  }
+
+  ranking.sort((a,b) => b.score - a.score);
+
+  return ranking;
+}
+
+
+/***************************************
+ * BASE N
+ ***************************************/
+function gerarBaseN(ranking) {
+
+  const elite = ranking.slice(0, 15);
+  const forte = ranking.slice(15, 30);
+  const media = ranking.slice(30, 50);
+  const fria = ranking.slice(50, 80);
+
+  const baseSize = CONFIG.baseSizes.F20;
+
+  const base = [];
+
+  base.push(...pickRandom(elite, 2));
+  base.push(...pickRandom(forte, 6));
+  base.push(...pickRandom(media, 8));
+  base.push(...pickRandom(fria, 4));
+
+  return base.map(e => e.number);
+
+}
+
+
+/***************************************
+ * FECHAMENTO
+ ***************************************/
+function gerarFechamento(base) {
+
+  const qtd = CONFIG.closures.F20;
+
+  const jogos = [];
+
+  for (let i = 0; i < qtd; i++) {
+
+    jogos.push(shuffle(base).slice(0, 5));
+
+  }
+
+  return jogos;
+
+}
+
+function obterUltimaGeracao() {
+
+  const sheet = getSheet("JOGOS");
+
+  const dados = sheet.getDataRange().getValues();
+
+  dados.shift(); // remove cabeçalho
+
+  return dados; // já são jogos 5 dezenas
+}
+
+function conferirUltimaGeracao() {
+
+  const jogos = obterUltimaGeracao();
+  const ultimoResultado = getUltimoResultadoQuina();
+
+  const relatorio = compararJogosComUltimoResultado(jogos, ultimoResultado);
+
+  return {
+    resultado: ultimoResultado,
+    jogos: relatorio
+  };
+}
+
+function getUltimoResultadoQuina() {
+
+  const sheet = getSheet("CONCURSOS");
+
+  const dados = sheet.getDataRange().getValues();
+
+  dados.shift();
+
+  const ultimo = dados[dados.length - 1];
+
+  return ultimo.slice(2,7).map(Number);
+
+}
+
+function compararJogosComUltimoResultado(jogos, resultado) {
+
+  const res = resultado.map(Number);
+
+  return jogos.map((j, i) => {
+
+    const jogo = j.map(Number);
+
+    const acertos = jogo.filter(n => res.includes(n)).length;
+
+    return {
+      index: i + 1,
+      jogo,
+      acertos
+    };
+
+  });
+
+}
+
+/***************************************
+ * UTIL - RANDOM
+ ***************************************/
+function pickRandom(arr, qtd) {
+
+  const copy = [...arr];
+
+  const result = [];
+
+  for (let i = 0; i < qtd; i++) {
+
+    if (!copy.length) break;
+
+    const idx = Math.floor(Math.random() * copy.length);
+
+    result.push(copy.splice(idx, 1)[0]);
+
+  }
+
+  return result;
+
+}
+
+function shuffle(array) {
+
+  return array.sort(() => Math.random() - 0.5);
+
+}
+
+
+/***************************************
+ * SALVAR RESULTADO
+ ***************************************/
+function salvarResultado(base, jogos, ranking) {
+
+  const sheetBase = getSheet("BASE_ATUAL");
+
+  const sheetJogos = getSheet("JOGOS");
+
+  sheetBase.clear();
+  sheetJogos.clear();
+
+  sheetBase.getRange(1,1,1,1).setValue("Base N");
+  sheetBase.getRange(2,1,base.length,1).setValues(base.map(n => [n]));
+
+  sheetJogos.getRange(1,1,1,5).setValues([["D1","D2","D3","D4","D5"]]);
+
+  const rows = jogos.map(j => j);
+
+  sheetJogos.getRange(2,1,rows.length,5).setValues(rows);
+
+}
+
+
+/***************************************
+ * SHEET HELPER
+ ***************************************/
+function getSheet(name) {
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  let sheet = ss.getSheetByName(name);
+
+  if (!sheet) sheet = ss.insertSheet(name);
+
+  return sheet;
+
+}
+
+
+/***************************************
+ * TRIGGER
+ ***************************************/
+function criarTriggerQuina() {
+
+  ScriptApp.newTrigger("atualizarQuinaIA")
+    .timeBased()
+    .everyHours(6)
+    .create();
+
+}
+
+function getBase() {
+  return getSheet("BASE_ATUAL")
+    .getRange(2,1,20,1)
+    .getValues()
+    .flat();
+}
+
+function getRanking() {
+  return gerarRanking(calcularEstatisticas(carregarConcursos()));
+}
+
+function getJogos() {
+  const base = getBase();
+  return gerarFechamento(base);
+}
+
+function doGet(e) {
+  return HtmlService
+    .createHtmlOutputFromFile("Index")
+    .setTitle("Quina IA - Dashboard")
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}

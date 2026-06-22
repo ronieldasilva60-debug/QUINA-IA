@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+
+  <title>Quina IA Dashboard</title>
+
+  <style>
+
+    body {
+      font-family: Arial;
+      background: #0f172a;
+      color: #fff;
+      margin: 0;
+      padding: 0;
+    }
+
+    header {
+      background: #111827;
+      padding: 20px;
+      text-align: center;
+      font-size: 22px;
+      font-weight: bold;
+      color: #38bdf8;
+    }
+
+    .container {
+      padding: 20px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .card {
+      background: #1e293b;
+      border-radius: 12px;
+      padding: 15px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.3);
+    }
+
+    .card h3 {
+      margin-top: 0;
+      color: #38bdf8;
+    }
+
+    button {
+      background: #38bdf8;
+      border: none;
+      padding: 12px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: bold;
+      margin-top: 10px;
+    }
+
+    button:hover {
+      background: #0ea5e9;
+    }
+
+    .numbers {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .ball {
+      background: #0ea5e9;
+      padding: 6px 10px;
+      border-radius: 50%;
+      font-weight: bold;
+      min-width: 28px;
+      text-align: center;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    td, th {
+      border-bottom: 1px solid #334155;
+      padding: 6px;
+      text-align: center;
+    }
+
+    .full {
+      grid-column: span 2;
+    }
+
+  </style>
+
+</head>
+
+<body>
+
+<header>
+  🎯 QUINA IA - DASHBOARD
+</header>
+
+<div class="container">
+
+  <!-- CONTROLES -->
+  <div class="card">
+    <h3>⚙️ Controle</h3>
+
+    <button onclick="gerar()">🔄 Gerar Nova Base IA</button>
+
+    <button onclick="atualizar()">📡 Atualizar Concursos</button>
+
+    <div id="status"></div>
+  </div>
+
+  <div class="card-base20">
+  <h2>🔎 Conferência da Última Geração</h2>
+
+  <button onclick="conferirUltimaGeracao()" class="btn-premium">
+    Conferir jogos
+  </button>
+
+  <div id="resultado-quina"></div>
+  <div id="lista-jogos"></div>
+</div>
+
+  <!-- BASE -->
+  <div class="card">
+    <h3>🎯 Base N Atual</h3>
+    <div id="base" class="numbers"></div>
+  </div>
+
+  <!-- RANKING -->
+  <div class="card full">
+    <h3>📊 Top 10 Números</h3>
+    <table id="ranking"></table>
+  </div>
+
+  <!-- JOGOS -->
+  <div class="card full">
+    <h3>🎰 Jogos Gerados</h3>
+    <table id="jogos"></table>
+  </div>
+
+</div>
+
+<script>
+
+function gerar() {
+
+  setStatus("Gerando Base IA...");
+
+  google.script.run.withSuccessHandler(render).atualizarQuinaIA();
+
+}
+
+function atualizar() {
+
+  setStatus("Importando últimos 200 concursos...");
+
+  google.script.run
+    .withSuccessHandler((msg) => {
+
+      setStatus(msg);
+
+      carregarRanking();
+      carregarBase();
+      carregarJogos();
+
+    })
+    .importarUltimosConcursos();
+
+}
+
+function render() {
+
+  setStatus("Atualizado com sucesso ✔");
+
+  carregarBase();
+  carregarRanking();
+  carregarJogos();
+
+}
+
+function carregarBase() {
+
+  google.script.run.withSuccessHandler(data => {
+
+    const div = document.getElementById("base");
+
+    div.innerHTML = "";
+
+    data.forEach(n => {
+
+      const el = document.createElement("div");
+
+      el.className = "ball";
+
+      el.innerText = n;
+
+      div.appendChild(el);
+
+    });
+
+  }).getBase();
+
+}
+
+function carregarRanking() {
+
+  google.script.run.withSuccessHandler(data => {
+
+    let html = "<tr><th>Número</th><th>Score</th></tr>";
+
+    data.slice(0,10).forEach(r => {
+
+      html += `<tr>
+        <td>${r.number}</td>
+        <td>${r.score.toFixed(2)}</td>
+      </tr>`;
+
+    });
+
+    document.getElementById("ranking").innerHTML = html;
+
+  }).getRanking();
+
+}
+
+function carregarJogos() {
+
+  google.script.run.withSuccessHandler(data => {
+
+    let html = "<tr><th>Jogo</th><th>Dezenas</th></tr>";
+
+    data.forEach((j,i) => {
+
+      html += `<tr>
+        <td>${i+1}</td>
+        <td>${j.join(" - ")}</td>
+      </tr>`;
+
+    });
+
+    document.getElementById("jogos").innerHTML = html;
+
+  }).getJogos();
+
+}
+
+function conferirUltimaGeracao() {
+
+  google.script.run.withSuccessHandler(function(data) {
+
+    document.getElementById("resultado-quina").innerHTML =
+      "<b>Último resultado:</b> " + data.resultado.join(" - ");
+
+    let html = "";
+
+    data.jogos.forEach(j => {
+      html += `
+        <div style="margin-top:10px;">
+          Jogo ${j.index}: ${j.jogo.join(" - ")}
+          <b style="color:gold;"> | Acertos: ${j.acertos}</b>
+        </div>
+      `;
+    });
+
+    document.getElementById("lista-jogos").innerHTML = html;
+
+  }).conferirUltimaGeracao();
+}
+
+function setStatus(msg) {
+
+  document.getElementById("status").innerText = msg;
+
+}
+
+window.onload = function() {
+  carregarBase();
+  carregarRanking();
+  carregarJogos();
+}
+
+</script>
+
+</body>
+</html>
