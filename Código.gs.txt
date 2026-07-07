@@ -1,524 +1,500 @@
 /***************************************
- * QUINA IA PRO v2 - EVOLUTIVA
+ * QUINA IA PRO v3 - MULTI BASE EVOLUTIVA
  ***************************************/
 
 const CONFIG = {
-
   urlQuina: "https://servicebus2.caixa.gov.br/portaldeloterias/api/quina",
-
   concursosAnalise: 200,
-
-  baseSizes: {
-    F15: 15,
-    F18: 18,
-    F20: 20,
-    F22: 22
-  },
-
-  closures: {
-    F15: 30,
-    F18: 60,
-    F20: 100,
-    F22: 150
-  },
-
+  baseSizes: { F15: 15, F18: 18, F20: 20, F22: 22 },
+  closures: { F15: 30, F18: 60, F20: 100, F22: 150 },
   weights: {
+    frequency: 0.30,
+    delay: 0.25,
+    trend: 0.20,
+    range: 0.15,
+    diversity: 0.10
+  },
+  legacyWeights: {
     frequency: 0.35,
     delay: 0.25,
     trend: 0.20,
     repeat: 0.10,
     balance: 0.10
   },
-
   evolution: {
     learningRate: 0.12,
     decay: 0.05,
     boostHit: 0.20,
     penaltyMiss: 0.10,
     maxWeight: 3.0,
-    minWeight: 0.2
+    minWeight: 0.2,
+    strategyMin: 0.80,
+    strategyMax: 1.25
   }
-
 };
-
 
 /***************************************
  * TRIGGER PRINCIPAL
  ***************************************/
-function atualizarQuinaIA() {
-
+function atualizarQuinaIA(tipoBase) {
   initMemoriaIA();
-
   importarUltimoConcurso();
 
+  const tipo = tipoBase || "F20";
+  const resultadoMulti = gerarJogosComMultiBaseQuina(tipo);
+
   const concursos = carregarConcursos();
+  if (concursos.length) {
+    const ultimo = concursos[concursos.length - 1];
+    const resultado = ultimo.slice(2, 7).map(Number);
+    const baseAprendizado = resultadoMulti.topBases.reduce((acc, item) => acc.concat(item.dezenas), []);
+    aprenderIA(ultimo[0], unique(baseAprendizado), resultado);
+  }
 
-  const stats = calcularEstatisticas(concursos);
+  return resultadoMulti;
+}
 
-  const ranking = gerarRanking(stats);
-
-  const base = gerarBaseN(ranking);
-
-  const jogos = gerarFechamento(base);
-
-  salvarResultado(base, jogos, ranking);
-
-  const ultimo = concursos[concursos.length - 1];
-  const resultado = ultimo.slice(2,7).map(Number);
-
-  aprenderIA(ultimo[0], base, resultado);
-
+function importarUltimoConcurso() {
+  return importarUltimosConcursos();
 }
 
 function initMemoriaIA() {
-
   const sheet = getSheet("MEMORIA_NUMEROS");
-
   if (sheet.getLastRow() > 1) return;
-
-  sheet.appendRow(["Numero","PesoIA","Sucesso","Falha","UltimoUso"]);
-
-  for (let i = 1; i <= 80; i++) {
-
-    sheet.appendRow([i, 1.0, 0, 0, new Date()]);
-
-  }
-
+  sheet.clear();
+  sheet.appendRow(["Numero", "PesoIA", "Sucesso", "Falha", "UltimoUso"]);
+  for (let i = 1; i <= 80; i++) sheet.appendRow([i, 1.0, 0, 0, new Date()]);
 }
 
 function getMemoria() {
-
+  initMemoriaIA();
   const sheet = getSheet("MEMORIA_NUMEROS");
-
   const data = sheet.getDataRange().getValues();
-
   data.shift();
-
   const map = {};
-
   data.forEach(r => {
-
-    map[r[0]] = {
-      peso: r[1],
-      sucesso: r[2],
-      falha: r[3],
-      ultimo: r[4]
-    };
-
+    map[Number(r[0])] = { peso: Number(r[1]) || 1, sucesso: Number(r[2]) || 0, falha: Number(r[3]) || 0, ultimo: r[4] };
   });
-
   return map;
-
-}
-
-function gerarBaseN(ranking) {
-
-  const elite = ranking.slice(0,15);
-  const forte = ranking.slice(15,30);
-  const media = ranking.slice(30,50);
-  const fria = ranking.slice(50,80);
-
-  const base = [];
-
-  base.push(...pick(elite, 2));
-  base.push(...pick(forte, 6));
-  base.push(...pick(media, 8));
-  base.push(...pick(fria, 4));
-
-  return base.map(n => n.number);
-
 }
 
 function aprenderIA(concurso, base, resultado) {
-
   const sheet = getSheet("MEMORIA_NUMEROS");
-
   const memoria = getMemoria();
+  const resultadoSet = new Set(resultado.map(Number));
 
-  const resultadoSet = new Set(resultado);
-
-  for (let n of base) {
-
-    let m = memoria[n];
-
-    if (!m) continue;
-
-    if (resultadoSet.has(n)) {
-
+  unique(base).forEach(n => {
+    const m = memoria[n];
+    if (!m) return;
+    if (resultadoSet.has(Number(n))) {
       m.peso += CONFIG.evolution.boostHit;
       m.sucesso++;
-
     } else {
-
       m.peso -= CONFIG.evolution.penaltyMiss;
       m.falha++;
-
     }
-
-    m.peso = Math.max(
-      CONFIG.evolution.minWeight,
-      Math.min(CONFIG.evolution.maxWeight, m.peso)
-    );
-
-  }
+    m.peso = clamp(m.peso, CONFIG.evolution.minWeight, CONFIG.evolution.maxWeight);
+  });
 
   salvarMemoria(sheet, memoria);
-
 }
 
 function salvarMemoria(sheet, memoria) {
-
   const values = [];
-
   for (let i = 1; i <= 80; i++) {
-
-    const m = memoria[i];
-
-    values.push([
-      i,
-      m.peso,
-      m.sucesso,
-      m.falha,
-      new Date()
-    ]);
-
+    const m = memoria[i] || { peso: 1, sucesso: 0, falha: 0 };
+    values.push([i, m.peso, m.sucesso, m.falha, new Date()]);
   }
-
-  sheet.getRange(2,1,values.length,5).setValues(values);
-
+  sheet.getRange(2, 1, values.length, 5).setValues(values);
 }
 
 /***************************************
  * IMPORTAÇÃO CAIXA
  ***************************************/
 function importarUltimosConcursos() {
-
   const sheet = getSheet("CONCURSOS");
+  if (sheet.getLastRow() === 0) sheet.appendRow(["Concurso", "Data", "D1", "D2", "D3", "D4", "D5"]);
 
-  const urlBase = "https://servicebus2.caixa.gov.br/portaldeloterias/api/quina";
-
-  // pega último concurso
-  const ultimoResp = UrlFetchApp.fetch(urlBase);
+  const ultimoResp = UrlFetchApp.fetch(CONFIG.urlQuina);
   const ultimoData = JSON.parse(ultimoResp.getContentText());
-
   const ultimoNumero = Number(ultimoData.numero);
-
-  const existentes = sheet.getDataRange().getValues()
-    .slice(1)
-    .map(r => Number(r[0]));
-
+  const existentes = sheet.getDataRange().getValues().slice(1).map(r => Number(r[0]));
   let adicionados = 0;
 
   for (let i = 0; i < CONFIG.concursosAnalise; i++) {
-
     const concurso = ultimoNumero - i;
-
     if (existentes.includes(concurso)) continue;
-
     try {
-
-      const resp = UrlFetchApp.fetch(`${urlBase}/${concurso}`);
+      const resp = UrlFetchApp.fetch(`${CONFIG.urlQuina}/${concurso}`);
       const data = JSON.parse(resp.getContentText());
-
       const dezenas = data.listaDezenas || data.dezenas;
-
       if (!dezenas) continue;
-
-      sheet.appendRow([
-        data.numero,
-        data.dataApuracao,
-        Number(dezenas[0]),
-        Number(dezenas[1]),
-        Number(dezenas[2]),
-        Number(dezenas[3]),
-        Number(dezenas[4])
-      ]);
-
+      sheet.appendRow([data.numero, data.dataApuracao].concat(dezenas.slice(0, 5).map(Number)));
       adicionados++;
-
-    } catch (e) {
-      // ignora concursos inexistentes ou erro da API
-      continue;
-    }
-
+    } catch (e) {}
   }
 
+  ordenarConcursosQuina();
   return `Importados: ${adicionados}`;
 }
 
+function ordenarConcursosQuina() {
+  const sheet = getSheet("CONCURSOS");
+  if (sheet.getLastRow() <= 2) return;
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).sort({ column: 1, ascending: true });
+}
 
 /***************************************
- * CARREGAR CONCURSOS
+ * CARREGAR CONCURSOS E ESTATÍSTICAS
  ***************************************/
 function carregarConcursos() {
-
   const sheet = getSheet("CONCURSOS");
-
+  if (sheet.getLastRow() <= 1) return [];
   const values = sheet.getDataRange().getValues();
-
   values.shift();
-
-  return values.slice(-CONFIG.concursosAnalise);
-
+  return values.filter(r => r[0]).slice(-CONFIG.concursosAnalise);
 }
 
-
-/***************************************
- * ESTATÍSTICAS
- ***************************************/
 function calcularEstatisticas(concursos) {
+  const freq = {}, atraso = {}, trend = {}, repeticao = {};
+  for (let i = 1; i <= 80; i++) { freq[i] = 0; atraso[i] = concursos.length; trend[i] = 0; repeticao[i] = 0; }
 
-  const freq = {};
-  const atraso = {};
-  const trend = {};
-
-  for (let i = 1; i <= 80; i++) {
-    freq[i] = 0;
-    atraso[i] = 0;
-    trend[i] = 0;
-  }
+  const janelaTrend = Math.min(30, concursos.length);
+  const recentes = concursos.slice(-janelaTrend);
+  const ultimo = concursos.length ? concursos[concursos.length - 1].slice(2, 7).map(Number) : [];
 
   concursos.forEach((c, idx) => {
-
-    const dezenas = c.slice(2, 7).map(Number);
-
-    dezenas.forEach(d => freq[d]++);
-
-    dezenas.forEach(d => {
-      atraso[d] = idx;
+    c.slice(2, 7).map(Number).forEach(d => {
+      freq[d]++;
+      atraso[d] = concursos.length - 1 - idx;
     });
-
   });
 
-  return { freq, atraso, trend };
+  recentes.forEach((c, idx) => {
+    const peso = (idx + 1) / Math.max(1, recentes.length);
+    c.slice(2, 7).map(Number).forEach(d => trend[d] += peso);
+  });
 
+  ultimo.forEach(d => repeticao[d] = 1);
+  return { freq, atraso, trend, repeticao, totalConcursos: concursos.length };
 }
 
-
-/***************************************
- * RANKING
- ***************************************/
 function gerarRanking(stats) {
-
   const memoria = getMemoria();
-
   const ranking = [];
-
   for (let i = 1; i <= 80; i++) {
-
-    const f = stats.freq[i] || 0;
-    const a = stats.atraso[i] || 0;
-
-    const m = memoria[i];
-
-    const pesoIA = m ? m.peso : 1;
-
-    const score =
-      (f * 0.35) +
-      (a * 0.25) +
-      (pesoIA * 20);
-
-    ranking.push({
-      number: i,
-      score: score
-    });
-
+    const score = (stats.freq[i] * CONFIG.legacyWeights.frequency) +
+      (stats.atraso[i] * CONFIG.legacyWeights.delay) +
+      ((stats.trend[i] || 0) * CONFIG.legacyWeights.trend) +
+      ((memoria[i] ? memoria[i].peso : 1) * 20);
+    ranking.push({ number: i, score: score });
   }
-
-  ranking.sort((a,b) => b.score - a.score);
-
+  ranking.sort((a, b) => b.score - a.score);
   return ranking;
 }
 
-
 /***************************************
- * BASE N
+ * MULTI BASE IA
  ***************************************/
-function gerarBaseN(ranking) {
+function gerarMultiBasesQuina(tipoBase) {
+  const tipo = normalizarTipoBaseQuina(tipoBase);
+  const concursos = carregarConcursos();
+  const analise = calcularEstatisticas(concursos);
+  const candidatas = [];
+  const estrategias = ["FREQUENCIA", "ATRASO", "HIBRIDA_IA"];
 
-  const elite = ranking.slice(0, 15);
-  const forte = ranking.slice(15, 30);
-  const media = ranking.slice(30, 50);
-  const fria = ranking.slice(50, 80);
+  estrategias.forEach(estrategia => {
+    for (let i = 1; i <= 10; i++) {
+      const seed = `${tipo}-${estrategia}-${i}-${new Date().getTime()}`;
+      const dezenas = gerarBaseCandidataQuina(tipo, analise, estrategia, seed);
+      const score = pontuarBaseQuina(dezenas, analise, concursos);
+      candidatas.push({
+        base: candidatas.length + 1,
+        tipo: tipo,
+        estrategia: estrategia,
+        score: score,
+        dezenas: dezenas
+      });
+    }
+  });
 
-  const baseSize = CONFIG.baseSizes.F20;
-
-  const base = [];
-
-  base.push(...pickRandom(elite, 2));
-  base.push(...pickRandom(forte, 6));
-  base.push(...pickRandom(media, 8));
-  base.push(...pickRandom(fria, 4));
-
-  return base.map(e => e.number);
-
+  candidatas.sort((a, b) => b.score - a.score);
+  candidatas.forEach((b, i) => b.posicao = i + 1);
+  salvarAnaliseMultiBasesQuina(candidatas);
+  atualizarEvolucaoMultiBasesQuina(candidatas);
+  return candidatas;
 }
 
+function gerarBaseCandidataQuina(tipoBase, analise, estrategia, seed) {
+  const tipo = normalizarTipoBaseQuina(tipoBase);
+  const tamanho = CONFIG.baseSizes[tipo];
+  const rnd = criarRandomSeeded(seed || `${tipo}-${estrategia}`);
+  const memoria = getMemoria();
+  const multiplicadores = getMultiplicadoresEstrategiaQuina();
+  const mult = multiplicadores[estrategia] || 1;
+  const maxFreq = Math.max.apply(null, Object.keys(analise.freq).map(k => analise.freq[k])) || 1;
+  const maxAtraso = Math.max.apply(null, Object.keys(analise.atraso).map(k => analise.atraso[k])) || 1;
+  const maxTrend = Math.max.apply(null, Object.keys(analise.trend).map(k => analise.trend[k])) || 1;
 
-/***************************************
- * FECHAMENTO
- ***************************************/
-function gerarFechamento(base) {
+  const pool = [];
+  for (let n = 1; n <= 80; n++) {
+    const freqNorm = (analise.freq[n] || 0) / maxFreq;
+    const atrasoNorm = (analise.atraso[n] || 0) / maxAtraso;
+    const trendNorm = (analise.trend[n] || 0) / maxTrend;
+    const ia = memoria[n] ? memoria[n].peso / CONFIG.evolution.maxWeight : 0.33;
+    const repeticao = analise.repeticao[n] ? 0.25 : 1;
+    const ruido = 0.85 + rnd() * 0.30;
+    let score;
 
-  const qtd = CONFIG.closures.F20;
+    if (estrategia === "FREQUENCIA") {
+      score = (freqNorm * 0.58) + (trendNorm * 0.18) + (ia * 0.14) + (atrasoNorm * 0.10);
+    } else if (estrategia === "ATRASO") {
+      score = (atrasoNorm * 0.58) + (freqNorm * 0.16) + (trendNorm * 0.12) + (ia * 0.14);
+    } else {
+      score = (freqNorm * 0.28) + (atrasoNorm * 0.24) + (trendNorm * 0.22) + (ia * 0.16) + (repeticao * 0.10);
+    }
 
-  const jogos = [];
-
-  for (let i = 0; i < qtd; i++) {
-
-    jogos.push(shuffle(base).slice(0, 5));
-
+    pool.push({ number: n, score: score * ruido * mult });
   }
 
-  return jogos;
+  return montarBaseEquilibradaQuina(pool, tamanho, rnd);
+}
 
+function montarBaseEquilibradaQuina(pool, tamanho, rnd) {
+  const faixas = [[1, 16], [17, 32], [33, 48], [49, 64], [65, 80]];
+  const alvoBase = Math.floor(tamanho / 5);
+  const sobra = tamanho % 5;
+  const escolhidas = [];
+
+  faixas.forEach((fx, idx) => {
+    const alvo = alvoBase + (idx < sobra ? 1 : 0);
+    const itens = pool.filter(p => p.number >= fx[0] && p.number <= fx[1]).sort((a, b) => b.score - a.score);
+    weightedPickMany(itens.slice(0, 12), alvo, rnd).forEach(item => escolhidas.push(item.number));
+  });
+
+  const usados = new Set(escolhidas);
+  const restantes = pool.filter(p => !usados.has(p.number)).sort((a, b) => b.score - a.score);
+  while (escolhidas.length < tamanho && restantes.length) {
+    escolhidas.push(weightedPickOne(restantes, rnd).number);
+    for (let i = restantes.length - 1; i >= 0; i--) if (restantes[i].number === escolhidas[escolhidas.length - 1]) restantes.splice(i, 1);
+  }
+
+  return unique(escolhidas).sort((a, b) => a - b).slice(0, tamanho);
+}
+
+function pontuarBaseQuina(base, analise, concursos) {
+  const dezenas = unique(base.map(Number));
+  const maxFreq = Math.max.apply(null, Object.keys(analise.freq).map(k => analise.freq[k])) || 1;
+  const maxAtraso = Math.max.apply(null, Object.keys(analise.atraso).map(k => analise.atraso[k])) || 1;
+  const maxTrend = Math.max.apply(null, Object.keys(analise.trend).map(k => analise.trend[k])) || 1;
+
+  const freqScore = media(dezenas.map(n => (analise.freq[n] || 0) / maxFreq)) * 100;
+  const delayScore = media(dezenas.map(n => (analise.atraso[n] || 0) / maxAtraso)) * 100;
+  const trendScore = media(dezenas.map(n => (analise.trend[n] || 0) / maxTrend)) * 100;
+  const rangeScore = calcularScoreFaixasQuina(dezenas);
+  const diversityScore = calcularScoreDiversidadeQuina(dezenas, concursos);
+
+  const scoreBase = (freqScore * CONFIG.weights.frequency) +
+    (delayScore * CONFIG.weights.delay) +
+    (trendScore * CONFIG.weights.trend) +
+    (rangeScore * CONFIG.weights.range) +
+    (diversityScore * CONFIG.weights.diversity);
+
+  return Math.round(clamp(scoreBase, 0, 100) * 10) / 10;
+}
+
+function selecionarTopBasesQuina(tipoBase) {
+  return gerarMultiBasesQuina(tipoBase).slice(0, 3);
+}
+
+function gerarJogosComMultiBaseQuina(tipoBase) {
+  const tipo = normalizarTipoBaseQuina(tipoBase);
+  const topBases = selecionarTopBasesQuina(tipo);
+  const qtdTotal = CONFIG.closures[tipo];
+  const distribuicao = distribuirJogosTopBasesQuina(qtdTotal);
+  const jogos = [];
+
+  topBases.forEach((baseInfo, idx) => {
+    const qtd = distribuicao[idx];
+    const jogosBase = gerarJogosDaBaseQuina(baseInfo.dezenas, qtd, `${tipo}-${baseInfo.estrategia}-${baseInfo.score}`);
+    baseInfo.qtdJogos = jogosBase.length;
+    jogosBase.forEach(j => jogos.push({ base: idx + 1, estrategia: baseInfo.estrategia, jogo: j }));
+  });
+
+  salvarResultado(topBases[0].dezenas, jogos.map(j => j.jogo), gerarRanking(calcularEstatisticas(carregarConcursos())), topBases);
+  salvarHistoricoBasesQuina(topBases, tipo);
+  return { tipo: tipo, totalJogos: jogos.length, topBases: topBases, jogos: jogos };
+}
+
+function distribuirJogosTopBasesQuina(total) {
+  const b1 = Math.floor(total * 0.33);
+  const b2 = Math.floor(total * 0.33);
+  return [b1, b2, total - b1 - b2];
+}
+
+function gerarJogosDaBaseQuina(base, quantidade, seed) {
+  const rnd = criarRandomSeeded(`${seed}-${new Date().getTime()}`);
+  const jogos = [];
+  let tentativas = 0;
+  while (jogos.length < quantidade && tentativas < quantidade * 80) {
+    tentativas++;
+    const jogo = montarJogoEquilibradoQuina(base, rnd);
+    if (jogo.length !== 5) continue;
+    if (maiorSimilaridadeQuina(jogo, jogos) > 3) continue;
+    jogos.push(jogo);
+  }
+  while (jogos.length < quantidade) jogos.push(shuffleSeeded(base, rnd).slice(0, 5).sort((a, b) => a - b));
+  return jogos;
+}
+
+function montarJogoEquilibradoQuina(base, rnd) {
+  const faixas = [[1, 16], [17, 32], [33, 48], [49, 64], [65, 80]];
+  const jogo = [];
+  faixas.forEach(fx => {
+    const nums = base.filter(n => n >= fx[0] && n <= fx[1]);
+    if (nums.length) jogo.push(nums[Math.floor(rnd() * nums.length)]);
+  });
+  if (jogo.length < 5) {
+    shuffleSeeded(base, rnd).forEach(n => { if (jogo.length < 5 && !jogo.includes(n)) jogo.push(n); });
+  }
+  return unique(jogo).sort((a, b) => a - b);
+}
+
+function salvarHistoricoBasesQuina(topBases, tipoBase) {
+  const sheet = getSheet("HISTORICO_BASES");
+  if (sheet.getLastRow() === 0) sheet.appendRow(["Data", "Tipo", "Estratégia", "Score", "Dezenas"]);
+  const rows = topBases.map(b => [new Date(), tipoBase, b.estrategia, b.score, b.dezenas.join(" ")]);
+  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 5).setValues(rows);
+}
+
+function salvarAnaliseMultiBasesQuina(bases) {
+  const sheet = getSheet("ANALISE_BASES");
+  sheet.clear();
+  sheet.appendRow(["Base", "Estratégia", "Score", "Dezenas"]);
+  const rows = bases.map(b => [b.base, b.estrategia, b.score, b.dezenas.join(" ")]);
+  if (rows.length) sheet.getRange(2, 1, rows.length, 4).setValues(rows);
+}
+
+function atualizarEvolucaoMultiBasesQuina(bases) {
+  const sheet = getSheet("EVOLUCAO");
+  if (sheet.getLastRow() === 0) sheet.appendRow(["Data", "MediaScores", "MelhorScore", "PiorScore", "Campea", "FreqCampea", "AtrasoCampea", "HibridaCampea"]);
+  const scores = bases.map(b => b.score);
+  const campea = bases[0] ? bases[0].estrategia : "";
+  const anteriores = sheet.getDataRange().getValues().slice(1);
+  const contagem = { FREQUENCIA: 0, ATRASO: 0, HIBRIDA_IA: 0 };
+  anteriores.forEach(r => { if (contagem.hasOwnProperty(r[4])) contagem[r[4]]++; });
+  if (contagem.hasOwnProperty(campea)) contagem[campea]++;
+  sheet.appendRow([new Date(), media(scores), Math.max.apply(null, scores), Math.min.apply(null, scores), campea, contagem.FREQUENCIA, contagem.ATRASO, contagem.HIBRIDA_IA]);
+}
+
+function getMultiplicadoresEstrategiaQuina() {
+  const sheet = getSheet("EVOLUCAO");
+  const mult = { FREQUENCIA: 1, ATRASO: 1, HIBRIDA_IA: 1 };
+  if (sheet.getLastRow() <= 1) return mult;
+  const rows = sheet.getDataRange().getValues().slice(1).slice(-30);
+  const cont = { FREQUENCIA: 0, ATRASO: 0, HIBRIDA_IA: 0 };
+  rows.forEach(r => { if (cont.hasOwnProperty(r[4])) cont[r[4]]++; });
+  const total = Math.max(1, rows.length);
+  Object.keys(mult).forEach(k => {
+    const desempenho = cont[k] / total;
+    const ajuste = 1 + ((desempenho - (1 / 3)) * CONFIG.evolution.learningRate);
+    mult[k] = clamp(ajuste, CONFIG.evolution.strategyMin, CONFIG.evolution.strategyMax);
+  });
+  return mult;
+}
+
+function getMultiBaseResumoQuina() {
+  const analise = getSheet("ANALISE_BASES");
+  const hist = getSheet("HISTORICO_BASES");
+  const dados = analise.getLastRow() > 1 ? analise.getDataRange().getValues().slice(1) : [];
+  const top = dados.slice(0, 3).map((r, idx) => ({
+    titulo: idx === 0 ? "Base Campeã" : (idx === 1 ? "Base Vice" : "Base Bronze"),
+    base: r[0], estrategia: r[1], score: Number(r[2]), dezenas: String(r[3]).split(/\s+/).filter(Boolean).map(Number), qtdJogos: 0
+  }));
+  if (hist.getLastRow() > 1) {
+    const ult = hist.getDataRange().getValues().slice(1).slice(-3);
+    ult.forEach((r, i) => { if (top[i]) top[i].tipo = r[1]; });
+  }
+  const totalJogos = getSheet("JOGOS").getLastRow() > 1 ? getSheet("JOGOS").getLastRow() - 1 : 0;
+  const dist = distribuirJogosTopBasesQuina(totalJogos);
+  top.forEach((b, i) => b.qtdJogos = dist[i] || 0);
+  return { basesAnalisadas: dados.length, topBases: top };
+}
+
+/***************************************
+ * BASE E FECHAMENTO LEGADOS COMPATÍVEIS
+ ***************************************/
+function gerarBaseN(ranking) {
+  const tipo = "F20";
+  const analise = calcularEstatisticas(carregarConcursos());
+  return gerarBaseCandidataQuina(tipo, analise, "HIBRIDA_IA", new Date().getTime());
+}
+
+function gerarFechamento(base) {
+  return gerarJogosDaBaseQuina(base, CONFIG.closures.F20, "legacy");
 }
 
 function obterUltimaGeracao() {
-
   const sheet = getSheet("JOGOS");
-
+  if (sheet.getLastRow() <= 1) return [];
   const dados = sheet.getDataRange().getValues();
-
-  dados.shift(); // remove cabeçalho
-
-  return dados; // já são jogos 5 dezenas
+  dados.shift();
+  return dados.map(r => r.slice(0, 5));
 }
 
 function conferirUltimaGeracao() {
-
   const jogos = obterUltimaGeracao();
   const ultimoResultado = getUltimoResultadoQuina();
-
   const relatorio = compararJogosComUltimoResultado(jogos, ultimoResultado);
-
-  return {
-    resultado: ultimoResultado,
-    jogos: relatorio
-  };
+  return { resultado: ultimoResultado, jogos: relatorio };
 }
 
 function getUltimoResultadoQuina() {
-
   const sheet = getSheet("CONCURSOS");
-
+  if (sheet.getLastRow() <= 1) return [];
   const dados = sheet.getDataRange().getValues();
-
   dados.shift();
-
   const ultimo = dados[dados.length - 1];
-
-  return ultimo.slice(2,7).map(Number);
-
+  return ultimo.slice(2, 7).map(Number);
 }
 
 function compararJogosComUltimoResultado(jogos, resultado) {
-
   const res = resultado.map(Number);
-
   return jogos.map((j, i) => {
-
     const jogo = j.map(Number);
-
-    const acertos = jogo.filter(n => res.includes(n)).length;
-
-    return {
-      index: i + 1,
-      jogo,
-      acertos
-    };
-
+    return { index: i + 1, jogo: jogo, acertos: jogo.filter(n => res.includes(n)).length };
   });
-
 }
-
-/***************************************
- * UTIL - RANDOM
- ***************************************/
-function pickRandom(arr, qtd) {
-
-  const copy = [...arr];
-
-  const result = [];
-
-  for (let i = 0; i < qtd; i++) {
-
-    if (!copy.length) break;
-
-    const idx = Math.floor(Math.random() * copy.length);
-
-    result.push(copy.splice(idx, 1)[0]);
-
-  }
-
-  return result;
-
-}
-
-function shuffle(array) {
-
-  return array.sort(() => Math.random() - 0.5);
-
-}
-
 
 /***************************************
  * SALVAR RESULTADO
  ***************************************/
-function salvarResultado(base, jogos, ranking) {
-
+function salvarResultado(base, jogos, ranking, topBases) {
   const sheetBase = getSheet("BASE_ATUAL");
-
   const sheetJogos = getSheet("JOGOS");
-
   sheetBase.clear();
   sheetJogos.clear();
 
-  sheetBase.getRange(1,1,1,1).setValue("Base N");
-  sheetBase.getRange(2,1,base.length,1).setValues(base.map(n => [n]));
+  sheetBase.getRange(1, 1, 1, 5).setValues([["Base N", "Estratégia", "Score", "Tipo", "Dezenas"]]);
+  const rowsBase = (topBases && topBases.length ? topBases : [{ dezenas: base, estrategia: "LEGADA", score: "", tipo: "F20" }])
+    .map(b => [b.posicao || "", b.estrategia || "", b.score || "", b.tipo || "F20", b.dezenas.join(" ")]);
+  sheetBase.getRange(2, 1, rowsBase.length, 5).setValues(rowsBase);
 
-  sheetJogos.getRange(1,1,1,5).setValues([["D1","D2","D3","D4","D5"]]);
-
-  const rows = jogos.map(j => j);
-
-  sheetJogos.getRange(2,1,rows.length,5).setValues(rows);
-
+  sheetJogos.getRange(1, 1, 1, 5).setValues([["D1", "D2", "D3", "D4", "D5"]]);
+  const rows = jogos.map(j => j.slice(0, 5).sort((a, b) => a - b));
+  if (rows.length) sheetJogos.getRange(2, 1, rows.length, 5).setValues(rows);
 }
-
 
 /***************************************
- * SHEET HELPER
+ * API WEB APP
  ***************************************/
-function getSheet(name) {
-
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-
-  let sheet = ss.getSheetByName(name);
-
-  if (!sheet) sheet = ss.insertSheet(name);
-
-  return sheet;
-
-}
-
-
-/***************************************
- * TRIGGER
- ***************************************/
-function criarTriggerQuina() {
-
-  ScriptApp.newTrigger("atualizarQuinaIA")
-    .timeBased()
-    .everyHours(6)
-    .create();
-
-}
-
 function getBase() {
-  return getSheet("BASE_ATUAL")
-    .getRange(2,1,20,1)
-    .getValues()
-    .flat();
+  const sheet = getSheet("BASE_ATUAL");
+  if (sheet.getLastRow() > 1 && sheet.getLastColumn() >= 5) {
+    const dezenas = sheet.getRange(2, 5).getValue();
+    if (dezenas) return String(dezenas).split(/\s+/).map(Number);
+  }
+  return [];
 }
 
 function getRanking() {
@@ -526,13 +502,116 @@ function getRanking() {
 }
 
 function getJogos() {
+  const sheet = getSheet("JOGOS");
+  if (sheet.getLastRow() > 1) return sheet.getDataRange().getValues().slice(1).map(r => r.slice(0, 5));
   const base = getBase();
-  return gerarFechamento(base);
+  return base.length ? gerarFechamento(base) : [];
 }
 
 function doGet(e) {
-  return HtmlService
-    .createHtmlOutputFromFile("Index")
-    .setTitle("Quina IA - Dashboard")
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  return HtmlService.createHtmlOutputFromFile("Index").setTitle("Quina IA - Dashboard").setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function criarTriggerQuina() {
+  ScriptApp.newTrigger("atualizarQuinaIA").timeBased().everyHours(6).create();
+}
+
+/***************************************
+ * HELPERS
+ ***************************************/
+function getSheet(name) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(name);
+  if (!sheet) sheet = ss.insertSheet(name);
+  return sheet;
+}
+
+function normalizarTipoBaseQuina(tipoBase) {
+  const tipo = String(tipoBase || "F20").toUpperCase();
+  return CONFIG.baseSizes[tipo] ? tipo : "F20";
+}
+
+function pickRandom(arr, qtd) {
+  return weightedPickMany(arr.map(e => ({ number: e.number || e, score: e.score || 1 })), qtd, Math.random);
+}
+
+function shuffle(array) {
+  return [...array].sort(() => Math.random() - 0.5);
+}
+
+function shuffleSeeded(array, rnd) {
+  const copy = [...array];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    const tmp = copy[i]; copy[i] = copy[j]; copy[j] = tmp;
+  }
+  return copy;
+}
+
+function weightedPickMany(items, qtd, rnd) {
+  const copy = [...items];
+  const out = [];
+  while (out.length < qtd && copy.length) {
+    const item = weightedPickOne(copy, rnd);
+    out.push(item);
+    const idx = copy.findIndex(e => e.number === item.number);
+    if (idx >= 0) copy.splice(idx, 1);
+  }
+  return out;
+}
+
+function weightedPickOne(items, rnd) {
+  const total = items.reduce((s, i) => s + Math.max(0.001, i.score || 1), 0);
+  let alvo = rnd() * total;
+  for (let i = 0; i < items.length; i++) {
+    alvo -= Math.max(0.001, items[i].score || 1);
+    if (alvo <= 0) return items[i];
+  }
+  return items[items.length - 1];
+}
+
+function calcularScoreFaixasQuina(dezenas) {
+  const faixas = [[1, 16], [17, 32], [33, 48], [49, 64], [65, 80]];
+  const esperado = dezenas.length / 5;
+  const desvio = faixas.reduce((s, fx) => s + Math.abs(dezenas.filter(n => n >= fx[0] && n <= fx[1]).length - esperado), 0);
+  return clamp(100 - (desvio * 12), 0, 100);
+}
+
+function calcularScoreDiversidadeQuina(dezenas, concursos) {
+  if (!concursos || !concursos.length) return 85;
+  const ultimos = concursos.slice(-20).map(c => c.slice(2, 7).map(Number));
+  const maxIntersecao = ultimos.reduce((max, res) => Math.max(max, dezenas.filter(n => res.includes(n)).length), 0);
+  const pares = dezenas.filter(n => n % 2 === 0).length;
+  const imparParScore = 100 - Math.abs(pares - (dezenas.length / 2)) * 8;
+  return clamp(((5 - maxIntersecao) / 5) * 60 + imparParScore * 0.40, 0, 100);
+}
+
+function maiorSimilaridadeQuina(jogo, jogos) {
+  if (!jogos.length) return 0;
+  return jogos.reduce((max, j) => Math.max(max, jogo.filter(n => j.includes(n)).length), 0);
+}
+
+function criarRandomSeeded(seed) {
+  let h = 2166136261;
+  String(seed).split("").forEach(ch => { h ^= ch.charCodeAt(0); h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24); });
+  return function() {
+    h += 0x6D2B79F5;
+    let t = h;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function unique(arr) {
+  return Array.from(new Set(arr.map(Number))).filter(n => n >= 1 && n <= 80);
+}
+
+function media(arr) {
+  if (!arr || !arr.length) return 0;
+  return arr.reduce((s, n) => s + Number(n || 0), 0) / arr.length;
+}
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, Number(n) || 0));
 }
