@@ -3,286 +3,169 @@
 <head>
   <base target="_top">
   <meta charset="UTF-8">
-
   <title>Quina IA Dashboard</title>
-
   <style>
-
-    body {
-      font-family: Arial;
-      background: #0f172a;
-      color: #fff;
-      margin: 0;
-      padding: 0;
-    }
-
-    header {
-      background: #111827;
-      padding: 20px;
-      text-align: center;
-      font-size: 22px;
-      font-weight: bold;
-      color: #38bdf8;
-    }
-
-    .container {
-      padding: 20px;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 20px;
-    }
-
-    .card {
-      background: #1e293b;
-      border-radius: 12px;
-      padding: 15px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.3);
-    }
-
-    .card h3 {
-      margin-top: 0;
-      color: #38bdf8;
-    }
-
-    button {
-      background: #38bdf8;
-      border: none;
-      padding: 12px 18px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-weight: bold;
-      margin-top: 10px;
-    }
-
-    button:hover {
-      background: #0ea5e9;
-    }
-
-    .numbers {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-    }
-
-    .ball {
-      background: #0ea5e9;
-      padding: 6px 10px;
-      border-radius: 50%;
-      font-weight: bold;
-      min-width: 28px;
-      text-align: center;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 14px;
-    }
-
-    td, th {
-      border-bottom: 1px solid #334155;
-      padding: 6px;
-      text-align: center;
-    }
-
-    .full {
-      grid-column: span 2;
-    }
-
+    body { font-family: Arial, sans-serif; background: #0f172a; color: #fff; margin: 0; padding: 0; }
+    header { background: #111827; padding: 20px; text-align: center; font-size: 22px; font-weight: bold; color: #38bdf8; }
+    .container { padding: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .card, .card-base20 { background: #1e293b; border-radius: 12px; padding: 15px; box-shadow: 0 0 10px rgba(0,0,0,0.3); }
+    .card h3, .card-base20 h2 { margin-top: 0; color: #38bdf8; }
+    button, select { background: #38bdf8; border: none; padding: 12px 18px; border-radius: 8px; cursor: pointer; font-weight: bold; margin-top: 10px; }
+    select { background: #0f172a; color: #fff; border: 1px solid #38bdf8; }
+    button:hover { background: #0ea5e9; }
+    .numbers { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .ball { background: #0ea5e9; padding: 6px 10px; border-radius: 50%; font-weight: bold; min-width: 28px; text-align: center; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    td, th { border-bottom: 1px solid #334155; padding: 6px; text-align: center; }
+    .full { grid-column: span 2; }
+    .multi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .base-card { background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 12px; }
+    .base-card h4 { margin: 0 0 8px 0; color: #facc15; }
+    .metric { color: #cbd5e1; margin: 4px 0; }
+    #status { margin-top: 12px; color: #facc15; font-weight: bold; }
+    @media (max-width: 900px) { .container, .multi-grid { grid-template-columns: 1fr; } .full { grid-column: span 1; } }
   </style>
-
 </head>
-
 <body>
-
-<header>
-  🎯 QUINA IA - DASHBOARD
-</header>
+<header>🎯 QUINA IA PRO - DASHBOARD</header>
 
 <div class="container">
-
-  <!-- CONTROLES -->
   <div class="card">
     <h3>⚙️ Controle</h3>
-
-    <button onclick="gerar()">🔄 Gerar Nova Base IA</button>
-
+    <label for="tipoBase">Tipo de base:</label>
+    <select id="tipoBase">
+      <option value="F15">F15 - 30 jogos</option>
+      <option value="F18">F18 - 60 jogos</option>
+      <option value="F20" selected>F20 - 100 jogos</option>
+      <option value="F22">F22 - 150 jogos</option>
+    </select><br>
+    <button onclick="gerar()">🔄 Gerar Multi Base IA</button>
     <button onclick="atualizar()">📡 Atualizar Concursos</button>
-
     <div id="status"></div>
   </div>
 
   <div class="card-base20">
-  <h2>🔎 Conferência da Última Geração</h2>
+    <h2>🔎 Conferência da Última Geração</h2>
+    <button onclick="conferirUltimaGeracao()" class="btn-premium">Conferir jogos</button>
+    <div id="resultado-quina"></div>
+    <div id="lista-jogos"></div>
+  </div>
 
-  <button onclick="conferirUltimaGeracao()" class="btn-premium">
-    Conferir jogos
-  </button>
+  <div class="card full">
+    <h3>🧠 MULTI BASE IA</h3>
+    <div class="metric">Bases analisadas: <b id="bases-analisadas">0</b></div>
+    <div id="multi-base" class="multi-grid"></div>
+  </div>
 
-  <div id="resultado-quina"></div>
-  <div id="lista-jogos"></div>
-</div>
-
-  <!-- BASE -->
   <div class="card">
-    <h3>🎯 Base N Atual</h3>
+    <h3>🎯 Base Campeã Atual</h3>
     <div id="base" class="numbers"></div>
   </div>
 
-  <!-- RANKING -->
   <div class="card full">
     <h3>📊 Top 10 Números</h3>
     <table id="ranking"></table>
   </div>
 
-  <!-- JOGOS -->
   <div class="card full">
     <h3>🎰 Jogos Gerados</h3>
     <table id="jogos"></table>
   </div>
-
 </div>
 
 <script>
-
 function gerar() {
-
-  setStatus("Gerando Base IA...");
-
-  google.script.run.withSuccessHandler(render).atualizarQuinaIA();
-
+  setStatus("Gerando 30 bases candidatas e jogos distribuídos...");
+  const tipo = document.getElementById("tipoBase").value;
+  google.script.run.withSuccessHandler(function() {
+    render();
+  }).withFailureHandler(function(err) {
+    setStatus("Erro: " + err.message);
+  }).atualizarQuinaIA(tipo);
 }
 
 function atualizar() {
-
   setStatus("Importando últimos 200 concursos...");
-
-  google.script.run
-    .withSuccessHandler((msg) => {
-
-      setStatus(msg);
-
-      carregarRanking();
-      carregarBase();
-      carregarJogos();
-
-    })
-    .importarUltimosConcursos();
-
+  google.script.run.withSuccessHandler(function(msg) {
+    setStatus(msg);
+    carregarRanking(); carregarBase(); carregarJogos(); carregarMultiBase();
+  }).withFailureHandler(function(err) {
+    setStatus("Erro: " + err.message);
+  }).importarUltimosConcursos();
 }
 
 function render() {
-
   setStatus("Atualizado com sucesso ✔");
-
-  carregarBase();
-  carregarRanking();
-  carregarJogos();
-
+  carregarBase(); carregarRanking(); carregarJogos(); carregarMultiBase();
 }
 
 function carregarBase() {
-
-  google.script.run.withSuccessHandler(data => {
-
+  google.script.run.withSuccessHandler(function(data) {
     const div = document.getElementById("base");
-
     div.innerHTML = "";
-
-    data.forEach(n => {
-
+    data.forEach(function(n) {
       const el = document.createElement("div");
-
       el.className = "ball";
-
-      el.innerText = n;
-
+      el.innerText = String(n).padStart(2, "0");
       div.appendChild(el);
-
     });
-
   }).getBase();
+}
 
+function carregarMultiBase() {
+  google.script.run.withSuccessHandler(function(data) {
+    document.getElementById("bases-analisadas").innerText = data.basesAnalisadas || 0;
+    const div = document.getElementById("multi-base");
+    div.innerHTML = "";
+    (data.topBases || []).forEach(function(base) {
+      const card = document.createElement("div");
+      card.className = "base-card";
+      card.innerHTML = `
+        <h4>${base.titulo}</h4>
+        <div class="metric">Estratégia: <b>${base.estrategia}</b></div>
+        <div class="metric">Score: <b>${Number(base.score).toFixed(1)}</b></div>
+        <div class="metric">Jogos gerados: <b>${base.qtdJogos || 0}</b></div>
+        <div class="numbers">${base.dezenas.map(n => `<span class="ball">${String(n).padStart(2, "0")}</span>`).join("")}</div>
+      `;
+      div.appendChild(card);
+    });
+  }).getMultiBaseResumoQuina();
 }
 
 function carregarRanking() {
-
-  google.script.run.withSuccessHandler(data => {
-
+  google.script.run.withSuccessHandler(function(data) {
     let html = "<tr><th>Número</th><th>Score</th></tr>";
-
-    data.slice(0,10).forEach(r => {
-
-      html += `<tr>
-        <td>${r.number}</td>
-        <td>${r.score.toFixed(2)}</td>
-      </tr>`;
-
+    data.slice(0, 10).forEach(function(r) {
+      html += `<tr><td>${String(r.number).padStart(2, "0")}</td><td>${r.score.toFixed(2)}</td></tr>`;
     });
-
     document.getElementById("ranking").innerHTML = html;
-
   }).getRanking();
-
 }
 
 function carregarJogos() {
-
-  google.script.run.withSuccessHandler(data => {
-
+  google.script.run.withSuccessHandler(function(data) {
     let html = "<tr><th>Jogo</th><th>Dezenas</th></tr>";
-
-    data.forEach((j,i) => {
-
-      html += `<tr>
-        <td>${i+1}</td>
-        <td>${j.join(" - ")}</td>
-      </tr>`;
-
+    data.forEach(function(j, i) {
+      html += `<tr><td>${i + 1}</td><td>${j.map(n => String(n).padStart(2, "0")).join(" - ")}</td></tr>`;
     });
-
     document.getElementById("jogos").innerHTML = html;
-
   }).getJogos();
-
 }
 
 function conferirUltimaGeracao() {
-
   google.script.run.withSuccessHandler(function(data) {
-
-    document.getElementById("resultado-quina").innerHTML =
-      "<b>Último resultado:</b> " + data.resultado.join(" - ");
-
+    document.getElementById("resultado-quina").innerHTML = "<b>Último resultado:</b> " + data.resultado.map(n => String(n).padStart(2, "0")).join(" - ");
     let html = "";
-
-    data.jogos.forEach(j => {
-      html += `
-        <div style="margin-top:10px;">
-          Jogo ${j.index}: ${j.jogo.join(" - ")}
-          <b style="color:gold;"> | Acertos: ${j.acertos}</b>
-        </div>
-      `;
+    data.jogos.forEach(function(j) {
+      html += `<div style="margin-top:10px;">Jogo ${j.index}: ${j.jogo.map(n => String(n).padStart(2, "0")).join(" - ")} <b style="color:gold;"> | Acertos: ${j.acertos}</b></div>`;
     });
-
     document.getElementById("lista-jogos").innerHTML = html;
-
   }).conferirUltimaGeracao();
 }
 
-function setStatus(msg) {
+function setStatus(msg) { document.getElementById("status").innerText = msg; }
 
-  document.getElementById("status").innerText = msg;
-
-}
-
-window.onload = function() {
-  carregarBase();
-  carregarRanking();
-  carregarJogos();
-}
-
+window.onload = function() { carregarBase(); carregarRanking(); carregarJogos(); carregarMultiBase(); };
 </script>
-
 </body>
 </html>
